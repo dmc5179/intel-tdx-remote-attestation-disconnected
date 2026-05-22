@@ -1,0 +1,6 @@
+FROM quay.io/intel-tdx/pcs-base:latest
+#FROM registry.redhat.io/rhel9/python-312-minimal
+#FROM registry.access.redhat.com/hi/python:latest
+
+RUN cd confidential-computing.tee.dcap/tools/PcsClientTool && \
+    python3 -m pip install -r requirements.txt
