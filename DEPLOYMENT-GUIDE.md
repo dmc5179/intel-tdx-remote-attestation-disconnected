@@ -193,7 +193,13 @@ Copy `./output/platform_collaterals.json` to removable media for transfer to the
 
 ## Step 4: Deploy Containers in the Disconnected Enclave
 
-### 4.1 Import container images
+Deploy the PCCS and PCCS Admin Tool in the disconnected enclave using either [Podman on a local server](#option-a-podman) or [an OpenShift cluster](#option-b-openshift).
+
+---
+
+### Option A: Podman
+
+#### 4A.1 Import container images
 
 On the host that will run PCCS in the disconnected enclave:
 
@@ -202,7 +208,7 @@ podman load -i /media/sneakernet/pccs.tar
 podman load -i /media/sneakernet/pccs-admin-tool.tar
 ```
 
-### 4.2 Start PCCS in OFFLINE mode
+#### 4A.2 Start PCCS in OFFLINE mode
 
 The PCCS container needs a persistent volume for its SQLite database so that collateral survives container restarts.
 
@@ -224,7 +230,7 @@ podman logs pccs
 curl -k https://localhost:8081/sgx/certification/v4/rootcacrl
 ```
 
-### 4.3 Insert collateral into PCCS
+#### 4A.3 Insert collateral into PCCS
 
 Copy `platform_collaterals.json` to the PCCS host, then run the Admin Tool:
 
@@ -238,7 +244,7 @@ podman run --rm \
     -i /data/platform_collaterals.json
 ```
 
-### 4.4 Configure TDX hosts to use PCCS
+#### 4A.4 Configure TDX hosts to use PCCS
 
 On each TDX host in the enclave, configure the QCNL (Quote Configuration and Negotiation Library) to point at the PCCS container.
 
@@ -253,6 +259,270 @@ Edit `/etc/sgx_default_qcnl.conf`:
 ```
 
 Replace `PCCS_HOST` with the hostname or IP of the machine running the PCCS container.
+
+---
+
+### Option B: OpenShift
+
+Deploying on an OpenShift cluster inside the disconnected enclave provides high availability, persistent storage, and network accessibility for all TDX hosts.
+
+#### 4B.1 Load container images into the disconnected environment
+
+On a host in the disconnected enclave that has access to both the sneakernet media and the OpenShift cluster:
+
+```bash
+podman load -i /media/sneakernet/pccs.tar
+podman load -i /media/sneakernet/pccs-admin-tool.tar
+```
+
+#### 4B.2 Push images to the OpenShift internal registry
+
+Tag and push the images to the cluster's internal registry (or a mirror registry accessible within the enclave):
+
+```bash
+REGISTRY=default-route-openshift-image-registry.apps.<cluster_domain>
+NAMESPACE=intel-pccs
+
+oc new-project ${NAMESPACE} || oc project ${NAMESPACE}
+
+podman login -u $(oc whoami) -p $(oc whoami -t) ${REGISTRY}
+
+podman tag quay.io/danclark/intel-tdx/pccs:latest \
+  ${REGISTRY}/${NAMESPACE}/pccs:latest
+podman push ${REGISTRY}/${NAMESPACE}/pccs:latest
+
+podman tag quay.io/danclark/intel-tdx/pccs-admin-tool:latest \
+  ${REGISTRY}/${NAMESPACE}/pccs-admin-tool:latest
+podman push ${REGISTRY}/${NAMESPACE}/pccs-admin-tool:latest
+```
+
+If using a separate mirror registry instead of the internal registry, substitute that registry's hostname and ensure the cluster has a pull secret configured for it.
+
+#### 4B.3 Create the PCCS PersistentVolumeClaim
+
+The PCCS SQLite database must survive pod restarts.
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pccs-data
+  namespace: intel-pccs
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+EOF
+```
+
+#### 4B.4 Deploy PCCS
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pccs
+  namespace: intel-pccs
+  labels:
+    app: pccs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pccs
+  template:
+    metadata:
+      labels:
+        app: pccs
+    spec:
+      containers:
+        - name: pccs
+          image: image-registry.openshift-image-registry.svc:5000/intel-pccs/pccs:latest
+          ports:
+            - containerPort: 8081
+              protocol: TCP
+          env:
+            - name: PCCS_MODE
+              value: "OFFLINE"
+          volumeMounts:
+            - name: pccs-data
+              mountPath: /opt/intel/sgx-dcap-pccs/data
+      volumes:
+        - name: pccs-data
+          persistentVolumeClaim:
+            claimName: pccs-data
+EOF
+```
+
+#### 4B.5 Create the PCCS Service
+
+Expose the PCCS pod within the cluster so the Admin Tool and TDX hosts can reach it:
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: pccs
+  namespace: intel-pccs
+spec:
+  selector:
+    app: pccs
+  ports:
+    - port: 8081
+      targetPort: 8081
+      protocol: TCP
+  type: ClusterIP
+EOF
+```
+
+#### 4B.6 Expose PCCS to the enclave network
+
+TDX hosts outside the cluster need to reach the PCCS endpoint. Create a passthrough Route (preserves the TLS that PCCS terminates itself) or a NodePort service depending on your network:
+
+**Option A: OpenShift Route (passthrough TLS)**
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: pccs
+  namespace: intel-pccs
+spec:
+  port:
+    targetPort: 8081
+  tls:
+    termination: passthrough
+  to:
+    kind: Service
+    name: pccs
+EOF
+```
+
+The PCCS will be reachable at `https://pccs-intel-pccs.apps.<cluster_domain>:443`.
+
+**Option B: NodePort**
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: v1
+kind: Service
+metadata:
+  name: pccs-nodeport
+  namespace: intel-pccs
+spec:
+  selector:
+    app: pccs
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 30081
+      protocol: TCP
+  type: NodePort
+EOF
+```
+
+The PCCS will be reachable at `https://<any_node_ip>:30081`.
+
+#### 4B.7 Verify the deployment
+
+```bash
+oc get pods -n intel-pccs
+oc logs deployment/pccs -n intel-pccs
+
+PCCS_URL=$(oc get route pccs -n intel-pccs -o jsonpath='{.spec.host}')
+curl -k https://${PCCS_URL}/sgx/certification/v4/rootcacrl
+```
+
+#### 4B.8 Insert collateral into PCCS
+
+Create a ConfigMap from the collateral file, then run the Admin Tool as a one-shot Job:
+
+```bash
+oc create configmap platform-collaterals \
+  -n intel-pccs \
+  --from-file=platform_collaterals.json=./platform_collaterals.json
+```
+
+```bash
+oc apply -f - <<'EOF'
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: pccs-admin-insert
+  namespace: intel-pccs
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: pccs-admin
+          image: image-registry.openshift-image-registry.svc:5000/intel-pccs/pccs-admin-tool:latest
+          command:
+            - python3
+            - /home/default/confidential-computing.tee.dcap.pccs/PccsAdminTool/pccsadmin.py
+            - put
+            - -u
+            - https://pccs.intel-pccs.svc:8081/sgx/certification/v4/platformcollateral
+            - -i
+            - /data/platform_collaterals.json
+          volumeMounts:
+            - name: collaterals
+              mountPath: /data
+              readOnly: true
+      volumes:
+        - name: collaterals
+          configMap:
+            name: platform-collaterals
+EOF
+```
+
+Check that the Job completed:
+
+```bash
+oc get jobs -n intel-pccs
+oc logs job/pccs-admin-insert -n intel-pccs
+```
+
+To refresh collateral later (see [Collateral Refresh](#collateral-refresh)), delete the old ConfigMap and Job, then recreate both with the new file:
+
+```bash
+oc delete job pccs-admin-insert -n intel-pccs
+oc delete configmap platform-collaterals -n intel-pccs
+# Then repeat the configmap create + job apply above with the new file
+```
+
+#### 4B.9 Configure TDX hosts to use PCCS
+
+On each TDX host in the enclave, configure the QCNL (Quote Configuration and Negotiation Library) to point at the PCCS service on OpenShift.
+
+Edit `/etc/sgx_default_qcnl.conf`:
+
+**If using an OpenShift Route (from step 4B.6):**
+
+```json
+{
+  "pccs_url": "https://pccs-intel-pccs.apps.<cluster_domain>/sgx/certification/v4/",
+  "use_secure_cert": false,
+  "collateral_service": "https://pccs-intel-pccs.apps.<cluster_domain>/sgx/certification/v4/"
+}
+```
+
+**If using NodePort (from step 4B.6):**
+
+```json
+{
+  "pccs_url": "https://<node_ip>:30081/sgx/certification/v4/",
+  "use_secure_cert": false,
+  "collateral_service": "https://<node_ip>:30081/sgx/certification/v4/"
+}
+```
 
 After this, TDX hosts can generate TD Quotes using the cached collateral without any internet access.
 
