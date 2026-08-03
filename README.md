@@ -1,40 +1,63 @@
-# Intel TDX Remote Attestation Infrastructure for disconnected environments
+# Intel TDX Remote Attestation Infrastructure for Disconnected Environments
 
-- This repo is based on the intel docs below and is designed to support Confidential Compute and Containers for disconnected environments
+This repo provides containerized tooling for Intel TDX remote attestation in air-gapped (disconnected) environments using the PCCS-based indirect registration flow.
 
-https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#intel-tdx-remote-attestation
+## Quick Start
 
+See **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** for the full step-by-step deployment workflow covering:
 
-Based on this doc: https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#on-offline-manual-multi-platform-pccs-based-indirect-registration
-https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#on-offline-manual-multi-platform-local-cache-based-indirect-registration
+- Architecture overview (what runs where)
+- Why the PCK Cert ID Retrieval Tool cannot be containerized
+- Building and exporting container images on the internet-connected side
+- Collecting platform data from each TDX host
+- Fetching attestation collateral from Intel PCS
+- Deploying PCCS and loading collateral in the disconnected enclave
+- Collateral refresh (every ~30 days)
+- Adding new hosts and TCB recovery
 
-## A subscription key for the Intel PCS
+## Reference Docs
 
-## The PCK Cert ID Retrieval Tool (PCKCIDRT) 
+- [Intel TDX Remote Attestation Infrastructure Setup](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#intel-tdx-remote-attestation)
+- [Offline PCCS-Based Indirect Registration](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#on-offline-manual-multi-platform-pccs-based-indirect-registration)
+- [Offline Local Cache-Based Indirect Registration](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#on-offline-manual-multi-platform-local-cache-based-indirect-registration)
 
-— A tool to support the retrieval of the PM and other platform information.
+## Containers
 
-For Linux version:
-- Install prebuilt Intel(R) SGX SDK , you can download it from [download.01.org](https://download.01.org/intel-sgx/latest/linux-latest/distro/)
-    a. sgx_linux_x64_sdk_${version}.bin
+| Image | Containerfile | Purpose | Runs On |
+|-------|--------------|---------|---------|
+| `pcs-base` | `PCS-Base-Containerfile` | Base image with Intel DCAP repo cloned | Build dependency only |
+| `pcs-client-tool` | `PCS-Client-Tool-Containerfile` | Merges platform CSVs, fetches collateral from Intel PCS | Internet-connected side |
+| `pccs-admin-tool` | `PCCS-Admin-Tool-Containerfile` | Inserts collateral into PCCS | Disconnected enclave |
+| `pccs` | `PCCS-Containerfile` | PCCS caching service (OFFLINE mode) | Disconnected enclave |
 
-## The PCCS Admin Tool  NOT NEEDED????
+The PCK Cert ID Retrieval Tool (PCKCIDRT) runs on bare metal — see `PCKCIDRT-Containerfile` for the rationale.
 
-— A tool to facilitate manual retrieval of platform information from PCCS (if PCK Cert ID Retrieval Tool inserted it there) and insertion of registration collateral into PCCS.
+## Intel PCS Subscription Key
 
-## The PCS Client Tool
+A subscription key is required to fetch collateral from the Intel Provisioning Certification Service. Register for free at [api.portal.trustedservices.intel.com](https://api.portal.trustedservices.intel.com/manage-subscriptions).
 
-— A tool to facilitate registration collateral parsing and manual REST API communication with Intel® SGX and Intel® TDX Provisioning Certification Service for flows where PCCS is not present (or does not have a direct Internet connectivity). The tool provides helper functionality for Indirect Registration, PCK Certificate retrieval, and verification collateral retrieval especially in multi-platform environments.
+## PCS Client Tool
 
-- clone the tool in a connected environment and pull the modules
-```
+Sourced from [intel/confidential-computing.tee.dcap](https://github.com/intel/confidential-computing.tee.dcap) (`tools/PcsClientTool/`).
+
+For offline module pre-download (if building in a restricted connected environment):
+
+```bash
 git clone https://github.com/intel/confidential-computing.tee.dcap.git
 cd confidential-computing.tee.dcap/tools/PcsClientTool/
 python3 -m pip download -r requirements.txt -d ./offline_modules
 ```
 
-- Move the entire git repo over and install the modules from the directory copied
-```
-pip install --no-index --find-links=/path/to/local/dir -r requirements.txt
+Then install from the local directory:
+
+```bash
+pip install --no-index --find-links=/path/to/offline_modules -r requirements.txt
 ```
 
+## Building
+
+```bash
+./build.sh
+```
+
+Builds all container images and exports tarballs to `./images/` for sneakernet transfer to the disconnected enclave.

@@ -1,6 +1,27 @@
-FROM quay.io/danclark/intel-tdx/pcs-base:latest
-
-RUN curl -L -O 'https://download.01.org/intel-sgx/latest/linux-latest/distro/rhel9.4-server/sgx_linux_x64_sdk_2.29.100.1.bin'
-
-#RUN cd confidential-computing.tee.dcap/tools/PCKRetrievalTool && \
-    
+# ===========================================================================
+# PCKCIDRT (PCK Cert ID Retrieval Tool) — NOT CONTAINERIZABLE
+# ===========================================================================
+#
+# This component CANNOT be containerized. It must run on bare metal because:
+#
+# 1. It requires direct access to SGX hardware devices:
+#    /dev/sgx_provision, /dev/sgx_enclave
+#
+# 2. It reads the Platform Manifest from UEFI variables via the BIOS.
+#    Containers do not have reliable access to the UEFI variable store.
+#
+# 3. After retrieving the Platform Manifest, it sets a one-time UEFI bit
+#    that prevents the BIOS from presenting the manifest again. This UEFI
+#    write requires bare-metal root privilege. An SGX Factory Reset in BIOS
+#    is required to re-run the tool.
+#
+# 4. This is a one-shot operation (run once per host), so there is no
+#    operational benefit to containerization.
+#
+# Install and run it directly on each TDX host:
+#
+#   sudo dnf install -y sgx-pck-id-retrieval-tool
+#   sudo PCKIDRetrievalTool -f host_$(hostnamectl --static).csv
+#
+# See DEPLOYMENT-GUIDE.md for the full workflow.
+# ===========================================================================

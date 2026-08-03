@@ -1,0 +1,19 @@
+{
+    "HTTPS_PORT": 8081,
+    "hosts": "0.0.0.0",
+    "uri": "https://api.trustedservices.intel.com/sgx/certification/v4/",
+    "ApiKey": "",
+    "proxy": "",
+    "RefreshSchedule": "0 0 1 * *",
+    "UserTokenHash": "",
+    "AdminTokenHash": "",
+    "CachingFillMode": "OFFLINE",
+    "LogLevel": "info",
+    "DB_CONFIG": "sqlite",
+    "sqlite": {
+        "database": "data/pckcache.db",
+        "options": {
+            "logging": false
+        }
+    }
+}
