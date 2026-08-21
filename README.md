@@ -2,6 +2,12 @@
 
 This repo provides containerized tooling for Intel TDX remote attestation in air-gapped (disconnected) environments using the PCCS-based indirect registration flow.
 
+## Parent Repository
+
+This is a sub-repo of [openshift-coco-disconnected](../README.md), which covers
+the full CoCo deployment stack (operators, mirroring, AutoShift policies, and
+this attestation infrastructure).
+
 ## Quick Start
 
 See **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** for the full step-by-step deployment workflow covering:
@@ -53,6 +59,30 @@ Then install from the local directory:
 ```bash
 pip install --no-index --find-links=/path/to/offline_modules -r requirements.txt
 ```
+
+## FIPS Considerations
+
+PCCS is a Node.js application. Node.js is **not FIPS-validated** by Red Hat.
+In a FIPS-enabled cluster, PCCS should run outside the FIPS enforcement boundary
+(e.g., on a separate utility host) or the risk should be documented and accepted.
+The TLS certificates served by PCCS should use FIPS-approved algorithms
+(RSA-2048+ or ECDSA P-256/P-384).
+
+## OpenShift CoreOS and PCKCIDRT
+
+On OpenShift bare-metal nodes running CoreOS, `sgx-pck-id-retrieval-tool`
+cannot be installed via `dnf`. Options:
+
+1. **Pre-install before cluster deployment** — run PCKCIDRT during the host
+   provisioning phase, before CoreOS is laid down.
+2. **Boot from a live RHEL image** — boot the host from RHEL installation media,
+   install and run PCKCIDRT, then boot back into CoreOS.
+3. **Use a privileged debug pod** — `oc debug node/<node>` with `chroot /host`
+   and install the RPM temporarily. This works for SGX device access but UEFI
+   variable access may be unreliable depending on kernel/firmware version.
+
+See the [DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md) for details on the PCKCIDRT
+UEFI write behavior.
 
 ## Building
 

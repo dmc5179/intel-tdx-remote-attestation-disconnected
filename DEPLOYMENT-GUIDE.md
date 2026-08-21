@@ -67,6 +67,23 @@ Install the tool from the Intel SGX RPM repository:
 sudo dnf install -y sgx-pck-id-retrieval-tool
 ```
 
+### PCKCIDRT on OpenShift CoreOS
+
+OpenShift bare-metal nodes run CoreOS, which does not support `dnf install`.
+Options for running PCKCIDRT on CoreOS nodes:
+
+1. **Pre-install during host provisioning** — run PCKCIDRT before CoreOS is
+   deployed. Collect all CSV files during initial hardware staging.
+2. **Boot from RHEL live media** — temporarily boot the host from RHEL
+   installation media, install and run PCKCIDRT, collect the CSV, then reboot
+   into CoreOS. The CSV is a one-time artifact.
+3. **Privileged debug pod** — use `oc debug node/<node>` with `chroot /host`
+   to access the host filesystem. The SGX device nodes may be accessible, but
+   UEFI variable access is unreliable from within a container.
+
+Option 1 (pre-install) is recommended for production deployments. Option 2 is
+acceptable for brownfield environments where hosts are already running CoreOS.
+
 ---
 
 ## Prerequisites
@@ -590,6 +607,24 @@ To add a new TDX host to the enclave:
 5. Transfer the updated `platform_collaterals.json` back to the enclave.
 6. Re-run the PCCS Admin Tool `put` command to insert the updated collateral.
 7. Configure QCNL on the new host to point at the PCCS (Step 4.4).
+
+---
+
+## FIPS Considerations
+
+When deploying in a FIPS-enabled environment:
+
+- **PCCS (Node.js):** PCCS is a Node.js application. Node.js is not
+  FIPS-validated by Red Hat. If your security policy requires all services to run
+  FIPS-validated cryptographic modules, deploy PCCS on a host outside the FIPS
+  enforcement boundary or document the exception.
+- **TLS certificates:** Ensure any TLS certificates generated for PCCS use
+  FIPS-approved algorithms (RSA-2048 or higher, ECDSA with NIST P-256 or P-384).
+  Avoid SHA-1 signatures.
+- **PCCS Admin Tool:** The admin tool uses Python `requests` with urllib3.
+  Python's `ssl` module respects the system FIPS mode on RHEL but the tool itself
+  has not been independently FIPS-certified. Verify that TLS connections between
+  the admin tool and PCCS negotiate FIPS-approved cipher suites.
 
 ---
 
