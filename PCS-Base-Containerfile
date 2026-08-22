@@ -3,8 +3,8 @@ FROM registry.redhat.io/rhel9/python-312-minimal
 
 USER root
 
-RUN microdnf -y install git && \
-    microdnf clean all && \
+RUN microdnf --disableplugin=subscription-manager -y install git && \
+    microdnf --disableplugin=subscription-manager clean all && \
     rm -rf /var/cache/yum /var/cache/dnf
 
 USER 1001

@@ -3,4 +3,4 @@ FROM quay.io/danclark/intel-tdx/pcs-base:latest
 #FROM registry.access.redhat.com/hi/python:latest
 
 RUN cd confidential-computing.tee.dcap/tools/PcsClientTool && \
-    python3 -m pip install -r requirements.txt
+    python3 -m pip install --no-cache-dir -r requirements.txt

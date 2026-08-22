@@ -2,8 +2,8 @@ FROM registry.redhat.io/rhel9/nodejs-20
 
 USER root
 
-RUN dnf install -y git openssl && \
-    dnf clean all && \
+RUN dnf --disableplugin=subscription-manager install -y git openssl && \
+    dnf --disableplugin=subscription-manager clean all && \
     rm -rf /var/cache/yum /var/cache/dnf
 
 WORKDIR /opt/intel/sgx-dcap-pccs
