@@ -97,6 +97,45 @@ Before starting, ensure you have:
 - [ ] A **sneakernet mechanism** (USB drive, write-once media, data diode) to transfer files between sides
 - [ ] TDX hosts with Intel TDX enabled in BIOS and the SGX provisioning driver loaded
 
+### RHEL Host Setup
+
+On the host(s) where you will run the containers, install Podman:
+
+```bash
+sudo dnf install -y podman
+```
+
+No other packages are required — all tooling runs inside containers.
+
+### PCCS Configuration
+
+Before building (or after, by mounting a config file), you must configure
+`pccs-config.json` with authentication token hashes. The PCCS uses SHA-512
+hashes to authenticate API callers:
+
+```bash
+# Choose passwords for the user and admin tokens
+echo -n 'your-user-token' | sha512sum | awk '{print $1}'
+echo -n 'your-admin-token' | sha512sum | awk '{print $1}'
+```
+
+Replace the `UserTokenHash` and `AdminTokenHash` values in `pccs-config.json`
+with the 128-character hex strings produced above. Keep the plaintext tokens —
+the PCS Client Tool and Admin Tool will prompt for them at runtime.
+
+### Single-Server Testing (No Air Gap)
+
+If you do not have a physically separated disconnected environment, you can run
+both the internet-connected side and the disconnected side on the same RHEL
+server. The separation is logical (different containers), not physical:
+
+- The PCS Client Tool container reaches Intel PCS over the internet
+- The PCCS container runs in OFFLINE mode on the same host
+- The PCCS Admin Tool connects to PCCS on `127.0.0.1:8081`
+- Skip all sneakernet transfer steps — files are already local
+
+Everything else in this guide works identically.
+
 ---
 
 ## Step 1: Build All Container Images (Internet-Connected Side)
@@ -181,7 +220,7 @@ cp /media/sneakernet/host_*.csv ./platform-data/
 podman run --rm \
   -v ./platform-data:/data:Z \
   -v ./output:/output:Z \
-  -w /home/default/confidential-computing.tee.dcap/tools/PcsClientTool \
+  -w /opt/app-root/src/confidential-computing.tee.dcap/tools/PcsClientTool \
   quay.io/danclark/intel-tdx/pcs-client-tool:latest \
   python3 pcsclient.py collect -d /data -o /output/platform_list.json
 ```
@@ -193,7 +232,7 @@ This reads all `host_*.csv` files and produces `./output/platform_list.json`.
 ```bash
 podman run --rm -it \
   -v ./output:/output:Z \
-  -w /home/default/confidential-computing.tee.dcap/tools/PcsClientTool \
+  -w /opt/app-root/src/confidential-computing.tee.dcap/tools/PcsClientTool \
   quay.io/danclark/intel-tdx/pcs-client-tool:latest \
   python3 pcsclient.py fetch -i /output/platform_list.json -o /output/platform_collaterals.json
 ```
@@ -225,7 +264,23 @@ podman load -i /media/sneakernet/pccs.tar
 podman load -i /media/sneakernet/pccs-admin-tool.tar
 ```
 
-#### 4A.2 Start PCCS in OFFLINE mode
+#### 4A.2 Generate TLS certificates for PCCS
+
+The PCCS requires TLS. Generate a self-signed certificate on the host:
+
+```bash
+mkdir -p ./pccs-ssl-key
+openssl req -x509 -newkey rsa:4096 \
+  -keyout ./pccs-ssl-key/private.pem -out ./pccs-ssl-key/file.crt \
+  -days 3650 -nodes -subj "/CN=PCCS"
+chmod 644 ./pccs-ssl-key/private.pem
+```
+
+> **Note:** The private key needs `644` permissions so the non-root container
+> user (UID 1001) can read it. In production, use proper certificates from your
+> PKI and restrict permissions appropriately.
+
+#### 4A.3 Start PCCS in OFFLINE mode
 
 The PCCS container needs a persistent volume for its SQLite database so that collateral survives container restarts.
 
@@ -236,7 +291,7 @@ podman run -d \
   --name pccs \
   -p 8081:8081 \
   -v pccs-data:/opt/intel/sgx-dcap-pccs/data:Z \
-  -e PCCS_MODE=OFFLINE \
+  -v ./pccs-ssl-key:/opt/intel/sgx-dcap-pccs/ssl_key:Z \
   quay.io/danclark/intel-tdx/pccs:latest
 ```
 
@@ -244,24 +299,32 @@ Verify it is running:
 
 ```bash
 podman logs pccs
-curl -k https://localhost:8081/sgx/certification/v4/rootcacrl
+# Should show: "HTTPS Server is running on: https://localhost:8081"
+
+# Use 127.0.0.1 (not localhost) — podman maps ports on IPv4 only
+curl -sk https://127.0.0.1:8081/sgx/certification/v4/rootcacrl
+# Expected: 404 "No cache data" (empty cache is normal before collateral insert)
 ```
 
-#### 4A.3 Insert collateral into PCCS
+#### 4A.4 Insert collateral into PCCS
 
 Copy `platform_collaterals.json` to the PCCS host, then run the Admin Tool:
 
 ```bash
-podman run --rm \
+podman run --rm -it \
   -v ./platform_collaterals.json:/data/platform_collaterals.json:Z \
   --network host \
+  -w /opt/app-root/src/confidential-computing.tee.dcap.pccs/PccsAdminTool \
   quay.io/danclark/intel-tdx/pccs-admin-tool:latest \
-  python3 /home/default/confidential-computing.tee.dcap.pccs/PccsAdminTool/pccsadmin.py put \
-    -u https://localhost:8081/sgx/certification/v4/platformcollateral \
+  python3 pccsadmin.py put --no-pccs-cert-check \
+    -u https://127.0.0.1:8081/sgx/certification/v4/platformcollateral \
     -i /data/platform_collaterals.json
 ```
 
-#### 4A.4 Configure TDX hosts to use PCCS
+When prompted, enter the admin token (the plaintext of the `AdminTokenHash` you
+configured in `pccs-config.json`).
+
+#### 4A.5 Configure TDX hosts to use PCCS
 
 On each TDX host in the enclave, configure the QCNL (Quote Configuration and Negotiation Library) to point at the PCCS container.
 
@@ -483,7 +546,7 @@ spec:
           image: image-registry.openshift-image-registry.svc:5000/intel-pccs/pccs-admin-tool:latest
           command:
             - python3
-            - /home/default/confidential-computing.tee.dcap.pccs/PccsAdminTool/pccsadmin.py
+            - /opt/app-root/src/confidential-computing.tee.dcap.pccs/PccsAdminTool/pccsadmin.py
             - put
             - -u
             - https://pccs.intel-pccs.svc:8081/sgx/certification/v4/platformcollateral

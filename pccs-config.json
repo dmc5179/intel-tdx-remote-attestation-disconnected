@@ -5,14 +5,16 @@
     "ApiKey": "",
     "proxy": "",
     "RefreshSchedule": "0 0 1 * *",
-    "UserTokenHash": "",
-    "AdminTokenHash": "",
+    "UserTokenHash": "REPLACE_WITH_SHA512_HASH_OF_YOUR_USER_TOKEN",
+    "AdminTokenHash": "REPLACE_WITH_SHA512_HASH_OF_YOUR_ADMIN_TOKEN",
     "CachingFillMode": "OFFLINE",
     "LogLevel": "info",
     "DB_CONFIG": "sqlite",
     "sqlite": {
         "database": "data/pckcache.db",
         "options": {
+            "dialect": "sqlite",
+            "storage": "data/pckcache.db",
             "logging": false
         }
     }
