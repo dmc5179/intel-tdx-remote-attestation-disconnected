@@ -289,11 +289,16 @@ podman volume create pccs-data
 
 podman run -d \
   --name pccs \
-  -p 8081:8081 \
+  --network host \
   -v pccs-data:/opt/intel/sgx-dcap-pccs/data:Z \
   -v ./pccs-ssl-key:/opt/intel/sgx-dcap-pccs/ssl_key:Z \
   quay.io/danclark/intel-tdx/pccs:latest
 ```
+
+> **Note:** `--network host` is used instead of `-p 8081:8081` so that PCCS is
+> reachable from other hosts. With rootless Podman, `-p` port mapping only binds
+> to localhost. See [Firewall and Network Configuration](#4a6-firewall-and-network-configuration)
+> for details.
 
 Verify it is running:
 
@@ -339,6 +344,54 @@ Edit `/etc/sgx_default_qcnl.conf`:
 ```
 
 Replace `PCCS_HOST` with the hostname or IP of the machine running the PCCS container.
+
+#### 4A.6 Firewall and Network Configuration
+
+The PCCS serves attestation collateral over HTTPS on **port 8081**. All TDX
+hosts (and OpenShift nodes running CoCo workloads) must be able to reach this
+port.
+
+**Podman networking:** When running PCCS with rootless Podman, the default
+`-p 8081:8081` port mapping only binds to `localhost`. To make PCCS reachable
+from other hosts, use `--network host` instead:
+
+```bash
+podman run -d \
+  --name pccs \
+  --network host \
+  -v pccs-data:/opt/intel/sgx-dcap-pccs/data:Z \
+  -v ./pccs-ssl-key:/opt/intel/sgx-dcap-pccs/ssl_key:Z \
+  quay.io/danclark/intel-tdx/pccs:latest
+```
+
+**Host firewall (firewalld):** If `firewalld` is active on the PCCS host, open
+port 8081:
+
+```bash
+sudo firewall-cmd --permanent --add-port=8081/tcp
+sudo firewall-cmd --reload
+```
+
+Verify with: `sudo firewall-cmd --list-ports`
+
+If no firewall is active (check `sudo systemctl status firewalld`), no host-level
+changes are needed.
+
+**Cloud environments (AWS, Azure, GCP):** The cloud security group or network
+security rules must allow inbound TCP 8081 from the TDX hosts or OpenShift
+cluster. For example, on AWS:
+
+- Open TCP 8081 inbound in the PCCS instance's Security Group
+- Source: the OpenShift cluster's egress IP range or the VPC CIDR
+- If the OpenShift cluster is outside the VPC, use the PCCS host's public IP
+  and open 8081 from the cluster's public egress IPs
+
+**iptables:** If the host uses raw iptables (no firewalld), verify the INPUT
+chain default policy is ACCEPT, or add a rule:
+
+```bash
+sudo iptables -A INPUT -p tcp --dport 8081 -j ACCEPT
+```
 
 ---
 
