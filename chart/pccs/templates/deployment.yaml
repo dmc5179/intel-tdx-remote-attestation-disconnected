@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pccs
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pccs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pccs
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: pccs
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      {{- if .Values.tls.generate }}
+      initContainers:
+        - name: generate-tls
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - /bin/sh
+            - -c
+            - |
+              if [ ! -f /tls/tls.key ]; then
+                openssl req -x509 -newkey rsa:4096 \
+                  -keyout /tls/tls.key -out /tls/tls.crt \
+                  -days 3650 -nodes -subj "/CN=pccs.{{ .Values.namespace }}.svc"
+              fi
+          volumeMounts:
+            - name: tls-generated
+              mountPath: /tls
+      {{- end }}
+      containers:
+        - name: pccs
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - containerPort: {{ .Values.pccs.httpsPort }}
+              protocol: TCP
+              name: https
+          volumeMounts:
+            - name: pccs-config
+              mountPath: /opt/intel/sgx-dcap-pccs/config/default.json
+              subPath: default.json
+            {{- if .Values.tls.generate }}
+            - name: tls-generated
+              mountPath: /opt/intel/sgx-dcap-pccs/ssl_key/private.pem
+              subPath: tls.key
+            - name: tls-generated
+              mountPath: /opt/intel/sgx-dcap-pccs/ssl_key/file.crt
+              subPath: tls.crt
+            {{- else }}
+            - name: tls-provided
+              mountPath: /opt/intel/sgx-dcap-pccs/ssl_key/private.pem
+              subPath: tls.key
+            - name: tls-provided
+              mountPath: /opt/intel/sgx-dcap-pccs/ssl_key/file.crt
+              subPath: tls.crt
+            {{- end }}
+            - name: pccs-data
+              mountPath: /opt/intel/sgx-dcap-pccs/data
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ .Values.pccs.httpsPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.pccs.httpsPort }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+      volumes:
+        - name: pccs-config
+          configMap:
+            name: pccs-config
+        {{- if .Values.tls.generate }}
+        - name: tls-generated
+          emptyDir: {}
+        {{- else }}
+        - name: tls-provided
+          secret:
+            secretName: {{ .Values.tls.existingSecret | default "pccs-tls" }}
+        {{- end }}
+        - name: pccs-data
+          persistentVolumeClaim:
+            claimName: pccs-data

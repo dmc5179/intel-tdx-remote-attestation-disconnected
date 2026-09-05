@@ -1,0 +1,38 @@
+namespace: intel-pccs
+
+image:
+  repository: quay.io/danclark/intel-tdx/pccs
+  tag: latest
+  pullPolicy: Always
+
+pccs:
+  httpsPort: 8081
+  cachingFillMode: OFFLINE
+  logLevel: info
+  # SHA-512 hashes of user and admin tokens
+  # Generate with: echo -n 'your-token' | sha512sum | awk '{print $1}'
+  userTokenHash: ""
+  adminTokenHash: ""
+
+tls:
+  # Set to true to generate a self-signed cert via an init container
+  generate: true
+  # If generate is false, provide an existing secret name containing tls.key and tls.crt
+  existingSecret: ""
+
+storage:
+  size: 1Gi
+  # Leave empty to use the default StorageClass
+  storageClass: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+# NodePort for external access from outside the cluster (e.g. QGS on bare metal)
+# Set to null to use ClusterIP only
+nodePort: 30081

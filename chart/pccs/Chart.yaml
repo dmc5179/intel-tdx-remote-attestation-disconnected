@@ -1,0 +1,6 @@
+apiVersion: v2
+name: pccs
+description: Intel PCCS (Provisioning Certificate Caching Service) for TDX/SGX attestation
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
