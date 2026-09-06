@@ -11,8 +11,9 @@ pccs:
   logLevel: info
   # SHA-512 hashes of user and admin tokens
   # Generate with: echo -n 'your-token' | sha512sum | awk '{print $1}'
-  userTokenHash: ""
-  adminTokenHash: ""
+  # Defaults below correspond to plaintext 'my-admin-token' and 'my-user-token'
+  userTokenHash: "1051439dc117f488c981b6a213bbd741b93f9282085b05e24dc55435219d313be60b875522a7b480828e967f5ac005ae74f8d563d20bb2eaa67a7eac33cb53ee"
+  adminTokenHash: "166ed84e68f1a961203020f7699553a3316a6a5dad2a44d424938998ea83a36f9be443c48726c38a6eef747d9637c22a2402b4b80523cea2b617a1261643933e"
 
 tls:
   # Set to true to generate a self-signed cert via an init container

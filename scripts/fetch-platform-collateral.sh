@@ -32,6 +32,7 @@ Commands:
 Options:
   --api-key KEY             Intel PCS API subscription key (or set INTEL_PCS_API_KEY)
   --admin-token TOKEN       PCCS admin token for insert (or set PCCS_ADMIN_TOKEN)
+                            Default from Helm chart: my-admin-token
   --work-dir DIR            Working directory for output files (default: collateral-output/)
   --pcs-client-image IMG    PCS Client Tool image (default: quay.io/danclark/intel-tdx/pcs-client-tool:latest)
   --admin-tool-image IMG    PCCS Admin Tool image (default: quay.io/danclark/intel-tdx/pccs-admin-tool:latest)
