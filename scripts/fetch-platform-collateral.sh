@@ -210,9 +210,9 @@ do_insert() {
     echo "Inserting collateral into PCCS at: $insert_url"
     echo ""
 
-    # The admin tool normally prompts for the admin token.
-    # We pipe it via stdin.
-    echo "$PCCS_ADMIN_TOKEN" | podman run --rm -i \
+    # The admin tool prompts via getpass for the token, then asks about
+    # keyring storage. Pipe both answers via stdin.
+    printf '%s\nn\n' "$PCCS_ADMIN_TOKEN" | podman run --rm -i \
         -v "$(realpath "$WORK_DIR")/platform_collaterals.json:/data/platform_collaterals.json:Z" \
         --network host \
         -w /opt/app-root/src/confidential-computing.tee.dcap.pccs/PccsAdminTool \
