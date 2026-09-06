@@ -113,6 +113,7 @@ do_collect() {
 
     echo ""
     echo "Merging CSV files into platform_list.json..."
+    chmod 777 "$(realpath "$WORK_DIR")"
     podman run --rm \
         -v "$(realpath "$csv_dir"):/data:Z" \
         -v "$(realpath "$WORK_DIR"):/output:Z" \
@@ -124,7 +125,11 @@ do_collect() {
         echo ""
         echo "Created: $WORK_DIR/platform_list.json"
         local platform_count
-        platform_count=$(python3 -c "import json; print(len(json.load(open('$WORK_DIR/platform_list.json')).get('platforms', [])))" 2>/dev/null || echo "?")
+        platform_count=$(python3 -c "
+import json
+data = json.load(open('$WORK_DIR/platform_list.json'))
+print(len(data) if isinstance(data, list) else len(data.get('platforms', [])))
+" 2>/dev/null || echo "?")
         echo "Platforms: $platform_count"
     else
         echo "ERROR: platform_list.json was not created"
@@ -153,6 +158,7 @@ do_fetch() {
 
     # The PCS Client Tool normally prompts for the API key interactively.
     # We pass it via the PCCS_API_KEY env var to avoid interactive prompts.
+    chmod 777 "$(realpath "$WORK_DIR")"
     podman run --rm \
         -v "$(realpath "$WORK_DIR"):/output:Z" \
         -e "PCCS_API_KEY=$INTEL_PCS_API_KEY" \
