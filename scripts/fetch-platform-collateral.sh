@@ -156,12 +156,14 @@ do_fetch() {
     echo "(This contacts api.trustedservices.intel.com)"
     echo ""
 
-    # The PCS Client Tool normally prompts for the API key interactively.
-    # We pass it via the PCCS_API_KEY env var to avoid interactive prompts.
+    # The PCS Client Tool prompts interactively via getpass/input:
+    #   1. "Please input ApiKey for Intel PCS:" (getpass, falls back to stdin)
+    #   2. "Would you like to remember Intel PCS ApiKey in OS keyring? (y/n)"
+    #   3. "Some certificates are 'Not available'. Do you want to save the list?(y/n)"
+    # We pipe all answers via stdin. Answer "n" to #3 to skip the partial save.
     chmod 777 "$(realpath "$WORK_DIR")"
-    podman run --rm \
+    printf '%s\nn\nn\n' "$INTEL_PCS_API_KEY" | podman run --rm -i \
         -v "$(realpath "$WORK_DIR"):/output:Z" \
-        -e "PCCS_API_KEY=$INTEL_PCS_API_KEY" \
         -w /opt/app-root/src/confidential-computing.tee.dcap/tools/PcsClientTool \
         "$PCS_CLIENT_IMAGE" \
         python3 pcsclient.py fetch \
