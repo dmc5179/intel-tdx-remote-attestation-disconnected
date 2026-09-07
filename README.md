@@ -1,88 +1,99 @@
 # Intel TDX Remote Attestation Infrastructure for Disconnected Environments
 
-This repo provides containerized tooling for Intel TDX remote attestation in air-gapped (disconnected) environments using the PCCS-based indirect registration flow.
+Containerized tooling for Intel TDX remote attestation in air-gapped
+(disconnected) environments using the PCCS-based indirect registration flow.
 
 ## Parent Repository
 
-This is a sub-repo of [openshift-coco-disconnected](../README.md), which covers
-the full CoCo deployment stack (operators, mirroring, AutoShift policies, and
-this attestation infrastructure).
+This is a sub-repo of
+[openshift-coco-disconnected](../README.md), which covers the full CoCo
+deployment stack (operators, mirroring, AutoShift policies, and this
+attestation infrastructure).
 
-## Quick Start
+## Architecture
 
-See **[DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md)** for the full step-by-step deployment workflow covering:
+```
+  INTERNET-CONNECTED SIDE                    DISCONNECTED ENCLAVE
+ ========================                   ======================
 
-- Architecture overview (what runs where)
-- Why the PCK Cert ID Retrieval Tool cannot be containerized
-- Building and exporting container images on the internet-connected side
-- Collecting platform data from each TDX host
-- Fetching attestation collateral from Intel PCS
-- Deploying PCCS and loading collateral in the disconnected enclave
-- Collateral refresh (every ~30 days)
-- Adding new hosts and TCB recovery
+ PCS Client Tool (container)                 TDX Host A, B, ... N
+   merge .csv files ◄──── sneakernet ◄──── PCKIDRetrievalTool (RPM)
+   fetch collateral from Intel PCS
+         │
+         │ platform_collaterals.json         PCCS (container, OFFLINE)
+         │ + container image tarballs          serves collateral on :8081
+         └──── sneakernet ──────────────►      ◄── Admin Tool inserts
+                                               ◄── KBS queries for
+                                                   TDX quote verification
+```
 
-## Reference Docs
+## Documentation
 
-- [Intel TDX Remote Attestation Infrastructure Setup](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#intel-tdx-remote-attestation)
-- [Offline PCCS-Based Indirect Registration](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#on-offline-manual-multi-platform-pccs-based-indirect-registration)
-- [Offline Local Cache-Based Indirect Registration](https://cc-enabling.trustedservices.intel.com/intel-tdx-enabling-guide/02/infrastructure_setup/#on-offline-manual-multi-platform-local-cache-based-indirect-registration)
+| Guide | Description |
+|-------|-------------|
+| [Connected Server Setup](docs/connected-server-setup.md) | Internet-connected RHEL server: packages, building images, API key |
+| [Disconnected Server Setup](docs/disconnected-server-setup.md) | Disconnected RHEL server: PCCS deployment (Podman or Helm), TLS, tokens |
+| [Connecting to Intel PCS API](docs/connected-pcs-api.md) | Collecting platform CSVs, fetching collateral from Intel PCS |
+| [PCCS to OpenShift Connectivity](docs/disconnected-pccs-openshift.md) | Firewall, KBS QCNL config, NodePort/Route, troubleshooting |
+| [Content to Mirror](docs/mirroring.md) | Container images and artifacts to transfer across the air gap |
+| [Full Deployment Guide](DEPLOYMENT-GUIDE.md) | End-to-end step-by-step (all details in one page) |
+| [Helm Chart](chart/pccs/README.md) | PCCS Helm chart for OpenShift |
+| [Operational Scripts](scripts/README.md) | Automated collateral workflow script |
 
 ## Containers
 
 | Image | Containerfile | Purpose | Runs On |
 |-------|--------------|---------|---------|
-| `pcs-base` | `PCS-Base-Containerfile` | Base image with Intel DCAP repo cloned | Build dependency only |
+| `pcs-base` | `PCS-Base-Containerfile` | Base image with Intel DCAP repo | Build dependency only |
 | `pcs-client-tool` | `PCS-Client-Tool-Containerfile` | Merges platform CSVs, fetches collateral from Intel PCS | Internet-connected side |
 | `pccs-admin-tool` | `PCCS-Admin-Tool-Containerfile` | Inserts collateral into PCCS | Disconnected enclave |
 | `pccs` | `PCCS-Containerfile` | PCCS caching service (OFFLINE mode) | Disconnected enclave |
 
-The PCK Cert ID Retrieval Tool (PCKCIDRT) runs on bare metal — see `PCKCIDRT-Containerfile` for the rationale.
+The PCK Cert ID Retrieval Tool (PCKCIDRT) runs on bare metal — see the
+[Full Deployment Guide](DEPLOYMENT-GUIDE.md) for the rationale.
+
+## Quick Start
+
+```bash
+# 1. Build container images (internet-connected side)
+./build.sh
+
+# 2. Collect CSV files from TDX hosts
+./scripts/fetch-platform-collateral.sh collect ./csv-dir/
+
+# 3. Fetch collateral from Intel PCS
+./scripts/fetch-platform-collateral.sh fetch --api-key YOUR_KEY
+
+# 4. Transfer images + collateral to disconnected side, then insert into PCCS
+./scripts/fetch-platform-collateral.sh insert https://pccs-host:8081 \
+  --admin-token my-admin-token
+```
+
+See the [docs/](docs/) directory for detailed guides on each step.
 
 ## Intel PCS Subscription Key
 
-A subscription key is required to fetch collateral from the Intel Provisioning Certification Service. Register for free at [api.portal.trustedservices.intel.com](https://api.portal.trustedservices.intel.com/manage-subscriptions).
-
-## PCS Client Tool
-
-Sourced from [intel/confidential-computing.tee.dcap](https://github.com/intel/confidential-computing.tee.dcap) (`tools/PcsClientTool/`).
-
-For offline module pre-download (if building in a restricted connected environment):
-
-```bash
-git clone https://github.com/intel/confidential-computing.tee.dcap.git
-cd confidential-computing.tee.dcap/tools/PcsClientTool/
-python3 -m pip download -r requirements.txt -d ./offline_modules
-```
-
-Then install from the local directory:
-
-```bash
-pip install --no-index --find-links=/path/to/offline_modules -r requirements.txt
-```
+A free API key is required to fetch collateral. Register at
+[api.portal.trustedservices.intel.com](https://api.portal.trustedservices.intel.com/manage-subscriptions).
 
 ## FIPS Considerations
 
 PCCS is a Node.js application. Node.js is **not FIPS-validated** by Red Hat.
-In a FIPS-enabled cluster, PCCS should run outside the FIPS enforcement boundary
-(e.g., on a separate utility host) or the risk should be documented and accepted.
-The TLS certificates served by PCCS should use FIPS-approved algorithms
-(RSA-2048+ or ECDSA P-256/P-384).
+In a FIPS-enabled environment, deploy PCCS on a host outside the FIPS
+enforcement boundary or document the exception. TLS certificates must use
+FIPS-approved algorithms (RSA-2048+ or ECDSA P-256/P-384).
 
 ## OpenShift CoreOS and PCKCIDRT
 
 On OpenShift bare-metal nodes running CoreOS, `sgx-pck-id-retrieval-tool`
 cannot be installed via `dnf`. Options:
 
-1. **Pre-install before cluster deployment** — run PCKCIDRT during the host
-   provisioning phase, before CoreOS is laid down.
-2. **Boot from a live RHEL image** — boot the host from RHEL installation media,
-   install and run PCKCIDRT, then boot back into CoreOS.
-3. **Use a privileged debug pod** — `oc debug node/<node>` with `chroot /host`
-   and install the RPM temporarily. This works for SGX device access but UEFI
-   variable access may be unreliable depending on kernel/firmware version.
-
-See the [DEPLOYMENT-GUIDE.md](DEPLOYMENT-GUIDE.md) for details on the PCKCIDRT
-UEFI write behavior.
+1. **Pre-install before cluster deployment** — run PCKCIDRT during host
+   provisioning, before CoreOS is laid down (recommended).
+2. **Boot from RHEL live media** — temporarily boot from RHEL, install and
+   run PCKCIDRT, then reboot into CoreOS.
+3. **Privileged debug pod** — `oc debug node/<node>` with `chroot /host`.
+   UEFI variable access may be unreliable.
 
 ## Building
 
@@ -90,4 +101,5 @@ UEFI write behavior.
 ./build.sh
 ```
 
-Builds all container images and exports tarballs to `./images/` for sneakernet transfer to the disconnected enclave.
+Builds all container images and exports tarballs to `./images/` for sneakernet
+transfer.
