@@ -141,12 +141,18 @@ options.
 
 ## FIPS Considerations
 
-PCCS is a Node.js application. Node.js is **not FIPS-validated** by Red Hat.
-If your security policy requires FIPS-validated crypto for all services, deploy
-PCCS on a host outside the FIPS enforcement boundary or document the exception.
+The PCCS container automatically detects FIPS mode at startup via
+`/proc/sys/crypto/fips_enabled` and enables `OPENSSL_FIPS_MODE` when running
+on a FIPS-enabled host. No manual configuration is required.
+
+Node.js in the Red Hat UBI image dynamically links against the system OpenSSL
+(`libssl.so.3`, `libcrypto.so.3`), and all algorithms used are FIPS-approved.
+However, Node.js itself is **not FIPS-validated** by Red Hat — if your security
+policy requires FIPS-validated crypto for all services, document the exception.
 
 TLS certificates must use FIPS-approved algorithms (RSA-2048+ or ECDSA
-P-256/P-384). Avoid SHA-1.
+P-256/P-384). The default self-signed cert uses RSA-4096 with SHA-256. Avoid
+SHA-1.
 
 ## Next Steps
 

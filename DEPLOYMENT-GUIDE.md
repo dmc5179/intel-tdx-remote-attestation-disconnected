@@ -728,19 +728,28 @@ To add a new TDX host to the enclave:
 
 ## FIPS Considerations
 
-When deploying in a FIPS-enabled environment:
+The PCCS container automatically detects FIPS mode at startup. The entrypoint
+script (`pccs-entrypoint.sh`) checks `/proc/sys/crypto/fips_enabled` and sets
+`NODE_CONFIG='{"OPENSSL_FIPS_MODE":true}'` when running on a FIPS-enabled host.
+No manual configuration is required.
 
-- **PCCS (Node.js):** PCCS is a Node.js application. Node.js is not
-  FIPS-validated by Red Hat. If your security policy requires all services to run
-  FIPS-validated cryptographic modules, deploy PCCS on a host outside the FIPS
-  enforcement boundary or document the exception.
-- **TLS certificates:** Ensure any TLS certificates generated for PCCS use
-  FIPS-approved algorithms (RSA-2048 or higher, ECDSA with NIST P-256 or P-384).
-  Avoid SHA-1 signatures.
-- **PCCS Admin Tool:** The admin tool uses Python `requests` with urllib3.
-  Python's `ssl` module respects the system FIPS mode on RHEL but the tool itself
-  has not been independently FIPS-certified. Verify that TLS connections between
-  the admin tool and PCCS negotiate FIPS-approved cipher suites.
+- **PCCS (Node.js):** The Red Hat UBI `rhel9/nodejs-20` image dynamically links
+  against the system OpenSSL (`libssl.so.3`, `libcrypto.so.3`), so crypto
+  operations use the same libraries as the host. All algorithms used (SHA-512,
+  SHA-384, TLS) are FIPS-approved. However, Node.js itself is **not
+  FIPS-validated** by Red Hat — the underlying OpenSSL is validated, but the
+  Node.js binding layer has not been through FIPS certification. If your security
+  policy requires FIPS-validated crypto for all services, document the exception.
+- **PCS Client Tool / PCCS Admin Tool (Python):** Python's `ssl` and
+  `cryptography` libraries use the system OpenSSL and respect FIPS mode
+  automatically on RHEL 9. All algorithms used (ECDSA-SHA256, SHA-512, TLS 1.2/1.3)
+  are FIPS-approved.
+- **Intel PCS API (internet-connected side):** Supports TLS 1.3
+  (`TLS_AES_256_GCM_SHA384`) and TLS 1.2 with Extended Master Secret
+  (`ECDHE-RSA-AES256-GCM-SHA384`). RSA-4096 server certificate with SHA-256.
+  Fully compatible with RHEL 9 FIPS crypto policy.
+- **TLS certificates:** The self-signed cert generated for PCCS uses RSA-4096
+  with SHA-256 — FIPS-approved. Avoid SHA-1 signatures.
 
 ---
 

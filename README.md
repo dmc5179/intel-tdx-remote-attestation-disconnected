@@ -78,10 +78,26 @@ A free API key is required to fetch collateral. Register at
 
 ## FIPS Considerations
 
-PCCS is a Node.js application. Node.js is **not FIPS-validated** by Red Hat.
-In a FIPS-enabled environment, deploy PCCS on a host outside the FIPS
-enforcement boundary or document the exception. TLS certificates must use
-FIPS-approved algorithms (RSA-2048+ or ECDSA P-256/P-384).
+The PCCS container automatically detects FIPS mode at startup via
+`/proc/sys/crypto/fips_enabled` and enables `OPENSSL_FIPS_MODE` when running
+on a FIPS-enabled host. No manual configuration is required.
+
+- **PCCS (Node.js):** The Red Hat UBI `rhel9/nodejs-20` image dynamically links
+  against the system OpenSSL (`libssl.so.3`, `libcrypto.so.3`). All crypto
+  operations (SHA-512 token auth, SHA-384 policy IDs, TLS) use FIPS-approved
+  algorithms. However, Node.js itself is **not FIPS-validated** by Red Hat —
+  the underlying OpenSSL is validated, but the Node.js binding layer has not
+  been through FIPS certification.
+- **PCS Client Tool / PCCS Admin Tool (Python):** Python's `ssl` and
+  `cryptography` libraries use the system OpenSSL and respect FIPS mode
+  automatically on RHEL 9. All algorithms used (ECDSA-SHA256, SHA-512, TLS 1.2/1.3)
+  are FIPS-approved.
+- **Intel PCS API:** Supports TLS 1.3 (`TLS_AES_256_GCM_SHA384`) and TLS 1.2
+  with Extended Master Secret (`ECDHE-RSA-AES256-GCM-SHA384`). RSA-4096 server
+  certificate with SHA-256 signatures. Fully compatible with RHEL 9 FIPS crypto
+  policy.
+- **TLS certificates:** The self-signed cert generated for PCCS uses RSA-4096
+  with SHA-256 — FIPS-approved. Avoid SHA-1 signatures.
 
 ## OpenShift CoreOS and PCKCIDRT
 

@@ -21,9 +21,11 @@ RUN mkdir -p data ssl_key && \
     chmod -R g=u /opt/intel/sgx-dcap-pccs
 
 COPY pccs-config.json config/default.json
+COPY pccs-entrypoint.sh /usr/local/bin/pccs-entrypoint.sh
+RUN chmod +x /usr/local/bin/pccs-entrypoint.sh
 
 EXPOSE 8081
 
 USER 1001
 
-CMD ["node", "pccs_server.js"]
+CMD ["/usr/local/bin/pccs-entrypoint.sh"]
